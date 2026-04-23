@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# CI: build and smoke-test libjmd on Linux (gcc + clang), macOS (clang)
+# and Windows (MinGW via MSYS2). The Windows job intentionally does
+# not attempt a native MSVC build — the LIBJMD_API macro in the public
+# header makes the library MSVC-compatible at the ABI level, but the
+# Makefile targets a POSIX-ish toolchain. MSVC users bring their own
+# build script; that's explicitly out of scope for M0.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        cc: [gcc, clang]
+        exclude:
+          # macOS: `gcc` is an alias for clang; skip the duplicate build.
+          - os: macos-latest
+            cc: gcc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: make CC=${{ matrix.cc }}
+
+      - name: Test
+        run: make test CC=${{ matrix.cc }}
+
+      - name: Install (staged)
+        run: |
+          make install \
+            CC=${{ matrix.cc }} \
+            DESTDIR=/tmp/stage \
+            PREFIX=/usr/local
+
+      - name: Verify pkg-config
+        run: |
+          PKG_CONFIG_PATH=/tmp/stage/usr/local/lib/pkgconfig \
+            pkg-config --cflags --libs libjmd
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        # Run every step in the MSYS2 MinGW64 shell so the POSIX-ish
+        # Makefile, `install`, `ln`, `sed`, and `pkg-config` all resolve
+        # to their MSYS equivalents.
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSYS2 / MinGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+
+      - name: Build
+        run: make
+
+      - name: Test
+        # The test binary loads libjmd.dll via its RPATH-equivalent;
+        # on Windows the loader searches the directory of the executable,
+        # which is the build root, so no extra PATH hop is needed as long
+        # as the DLL sits next to test_link.exe.
+        run: |
+          cp libjmd-0.dll tests/
+          make test
+
+      - name: Install (staged)
+        run: make install DESTDIR=/tmp/stage PREFIX=/usr/local
+
+      - name: Verify pkg-config
+        run: |
+          PKG_CONFIG_PATH=/tmp/stage/usr/local/lib/pkgconfig \
+            pkg-config --cflags --libs libjmd

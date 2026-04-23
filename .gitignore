@@ -1,0 +1,8 @@
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+libjmd.pc
+tests/test_link
+.DS_Store

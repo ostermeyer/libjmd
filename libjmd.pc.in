@@ -1,0 +1,11 @@
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libjmd
+Description: JMD (JSON Markdown) parser and serializer
+URL: https://github.com/ostermeyer/libjmd
+Version: @VERSION@
+Libs: -L${libdir} -ljmd
+Cflags: -I${includedir}

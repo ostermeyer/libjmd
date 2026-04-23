@@ -1,0 +1,3 @@
+[submodule "vendor/jmd-spec"]
+	path = vendor/jmd-spec
+	url = https://github.com/ostermeyer/jmd-spec.git
