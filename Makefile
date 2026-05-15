@@ -153,7 +153,11 @@ tests/test_tokenizer: tests/test_tokenizer.c tests/test_util.h \
                       src/tokenizer.h $(TEST_LIB)
 	$(CC) $(CFLAGS_ALL) -o $@ tests/test_tokenizer.c $(TEST_LIB) $(LDFLAGS)
 
-UNIT_TESTS := tests/test_tokenizer
+tests/test_conformance: tests/test_conformance.c tests/test_util.h \
+                        $(TEST_LIB) include/libjmd.h
+	$(CC) $(CFLAGS_ALL) -o $@ tests/test_conformance.c $(TEST_LIB) $(LDFLAGS)
+
+UNIT_TESTS := tests/test_tokenizer tests/test_conformance
 
 test: tests/test_link $(UNIT_TESTS)
 	./tests/test_link

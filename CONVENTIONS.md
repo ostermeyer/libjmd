@@ -322,5 +322,40 @@ a comment is read every time someone opens the file.
 
 ---
 
+## §9 Fallback style: PostgreSQL coding conventions
+
+Where these conventions are silent on a formatting detail, follow
+PostgreSQL's source-code conventions
+(https://www.postgresql.org/docs/current/source-format.html).
+`pgindent` over `src/`, `include/`, and `tests/` should produce a
+no-op diff once a slice has settled.
+
+The rules that matter in practice and that PostgreSQL settles for
+us:
+
+- **Indentation:** hard tabs, displayed at width 4. The repo
+  ships a `.editorconfig` that pins this for `.c`, `.h`, and
+  `Makefile`; the equivalent Sublime Text user-level settings live
+  under `Packages/User/{C,C++,Makefile}.sublime-settings`.
+- **Line width:** 80 columns soft, 100 hard. Wrap long argument
+  lists at function-call boundaries, not mid-expression.
+- **Braces:** Allman for function definitions (brace on its own
+  line), K&R for control flow (brace on the `if`/`while`/`for`
+  line). Single-statement bodies still get braces.
+- **Comment style:** `/* ... */` everywhere — even single-line.
+  Sentence-shaped with terminal punctuation. `//` is reserved for
+  temporary debug comments that must not survive a commit.
+- **Include order in `.c` files:** see §5.
+
+The few places where libjmd deliberately diverges from PostgreSQL:
+
+- **Header guards:** `LIBJMD_<MODULE>_H` (project-prefix style).
+  PostgreSQL uses `PG_<MODULE>_H` because that prefix is its own.
+- **Public identifiers:** `jmd_` / `JMD_` prefix mandatory (§1).
+  PostgreSQL uses no project prefix at all because there is only
+  one project in its source tree.
+
+---
+
 *This document evolves with the codebase. Amend it in the same
 commit as the behavior that motivates the amendment.*

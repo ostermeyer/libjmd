@@ -1,0 +1,24 @@
+# EditorConfig (https://editorconfig.org/) — portable per-glob
+# indentation policy. Honoured by VS Code natively and by Sublime
+# Text via the EditorConfig package. ST users without the plugin
+# fall back to ~/Library/Application Support/Sublime Text/Packages/
+# User/{C,C++,Makefile}.sublime-settings, which set the same policy.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{c,h}]
+indent_style = tab
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false
