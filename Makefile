@@ -111,7 +111,7 @@ else
     TEST_LIB := $(STLIB)
 endif
 
-SRCS := src/version.c src/parser.c src/dom.c src/serializer.c
+SRCS := src/version.c src/tokenizer.c src/parser.c src/dom.c src/serializer.c
 OBJS := $(SRCS:.c=.o)
 
 PC_FILE := libjmd.pc
@@ -146,8 +146,18 @@ $(PC_FILE): libjmd.pc.in Makefile
 tests/test_link: tests/test_link.c $(TEST_LIB) include/libjmd.h
 	$(CC) $(CFLAGS_ALL) -o $@ tests/test_link.c $(TEST_LIB) $(LDFLAGS)
 
-test: tests/test_link
+# Unit tests per internal module. Each links against the static lib
+# so it can call internal `src/<module>.c` symbols without going via
+# the public header. New module tests get a rule + a `test:` dep here.
+tests/test_tokenizer: tests/test_tokenizer.c tests/test_util.h \
+                      src/tokenizer.h $(TEST_LIB)
+	$(CC) $(CFLAGS_ALL) -o $@ tests/test_tokenizer.c $(TEST_LIB) $(LDFLAGS)
+
+UNIT_TESTS := tests/test_tokenizer
+
+test: tests/test_link $(UNIT_TESTS)
 	./tests/test_link
+	@set -e; for t in $(UNIT_TESTS); do echo "==> $$t"; ./$$t; done
 
 install: all
 	install -d $(DESTDIR)$(PREFIX)/lib
@@ -180,5 +190,6 @@ else
 endif
 
 clean:
-	rm -f $(OBJS) $(SHLIB) $(STLIB) $(IMPLIB) $(PC_FILE) tests/test_link \
-	      tests/test_link.exe
+	rm -f $(OBJS) $(SHLIB) $(STLIB) $(IMPLIB) $(PC_FILE) \
+          tests/test_link $(UNIT_TESTS) \
+          tests/test_link.exe

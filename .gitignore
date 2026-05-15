@@ -5,4 +5,5 @@
 *.dylib
 libjmd.pc
 tests/test_link
+tests/test_tokenizer
 .DS_Store
