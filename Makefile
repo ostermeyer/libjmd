@@ -111,7 +111,8 @@ else
     TEST_LIB := $(STLIB)
 endif
 
-SRCS := src/version.c src/tokenizer.c src/parser.c src/dom.c src/serializer.c
+SRCS := src/version.c src/tokenizer.c src/scalars.c \
+        src/parser.c src/dom.c src/serializer.c
 OBJS := $(SRCS:.c=.o)
 
 PC_FILE := libjmd.pc
@@ -157,7 +158,11 @@ tests/test_conformance: tests/test_conformance.c tests/test_util.h \
                         $(TEST_LIB) include/libjmd.h
 	$(CC) $(CFLAGS_ALL) -o $@ tests/test_conformance.c $(TEST_LIB) $(LDFLAGS)
 
-UNIT_TESTS := tests/test_tokenizer tests/test_conformance
+tests/test_scalars: tests/test_scalars.c tests/test_util.h \
+                    src/scalars.h $(TEST_LIB)
+	$(CC) $(CFLAGS_ALL) -o $@ tests/test_scalars.c $(TEST_LIB) $(LDFLAGS)
+
+UNIT_TESTS := tests/test_tokenizer tests/test_scalars tests/test_conformance
 
 test: tests/test_link $(UNIT_TESTS)
 	./tests/test_link
