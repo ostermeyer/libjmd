@@ -7,5 +7,6 @@ libjmd.pc
 tests/test_link
 tests/test_tokenizer
 tests/test_scalars
+tests/test_frontmatter
 tests/test_conformance
 .DS_Store

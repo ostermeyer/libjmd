@@ -111,7 +111,7 @@ else
     TEST_LIB := $(STLIB)
 endif
 
-SRCS := src/version.c src/tokenizer.c src/scalars.c \
+SRCS := src/version.c src/tokenizer.c src/scalars.c src/frontmatter.c \
         src/parser.c src/dom.c src/serializer.c
 OBJS := $(SRCS:.c=.o)
 
@@ -162,7 +162,12 @@ tests/test_scalars: tests/test_scalars.c tests/test_util.h \
                     src/scalars.h $(TEST_LIB)
 	$(CC) $(CFLAGS_ALL) -o $@ tests/test_scalars.c $(TEST_LIB) $(LDFLAGS)
 
-UNIT_TESTS := tests/test_tokenizer tests/test_scalars tests/test_conformance
+tests/test_frontmatter: tests/test_frontmatter.c tests/test_util.h \
+                        src/frontmatter.h src/tokenizer.h $(TEST_LIB)
+	$(CC) $(CFLAGS_ALL) -o $@ tests/test_frontmatter.c $(TEST_LIB) $(LDFLAGS)
+
+UNIT_TESTS := tests/test_tokenizer tests/test_scalars \
+              tests/test_frontmatter tests/test_conformance
 
 test: tests/test_link $(UNIT_TESTS)
 	./tests/test_link

@@ -116,4 +116,16 @@ void jmd_tokenizer_init(jmd_tokenizer_t *tk,
  */
 int jmd_tokenizer_next(jmd_tokenizer_t *tk, jmd_line_t *out);
 
+/*
+ * jmd_tokenizer_peek — classify the next line without advancing.
+ *
+ * Same semantics as jmd_tokenizer_next on the return value and the
+ * fields it writes into *out, except that the tokenizer cursor is
+ * left untouched: a subsequent jmd_tokenizer_next will return the
+ * same line. Used by upper layers that need to make a routing
+ * decision (frontmatter vs. body, depth-qualified item vs. plain
+ * heading) before committing to consume the line.
+ */
+int jmd_tokenizer_peek(const jmd_tokenizer_t *tk, jmd_line_t *out);
+
 #endif /* LIBJMD_TOKENIZER_H */

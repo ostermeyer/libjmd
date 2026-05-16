@@ -148,3 +148,13 @@ int jmd_tokenizer_next(jmd_tokenizer_t *tk, jmd_line_t *out)
 
     return 1;
 }
+
+int jmd_tokenizer_peek(const jmd_tokenizer_t *tk, jmd_line_t *out)
+{
+    /* Peek shares all classification logic with next; the cheapest
+     * correct implementation is to operate on a private copy of the
+     * cursor and discard the post-call state. classify_line writes
+     * only to *out, so this is safe. */
+    jmd_tokenizer_t copy = *tk;
+    return jmd_tokenizer_next(&copy, out);
+}
