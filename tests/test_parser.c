@@ -661,6 +661,108 @@ TEST(array_closes_on_shallower_heading)
         "DE\n");
 }
 
+TEST(depth_qualified_item_same_depth_form_a)
+{
+    /* §8.6a: `## - new` inside an existing `## items[]` array
+     * closes any current item and starts a new one at the same
+     * depth as the array heading. */
+    trace_t t = {0};
+    int rc;
+    parse_into(
+        "# Doc\n"
+        "## items[]\n"
+        "- a: 1\n"
+        "## - b: 2\n",
+        &t, &rc);
+    EXPECT_EQ_INT(rc, JMD_OK);
+    EXPECT_TRACE(t.buf,
+        "DSd Doc\n"
+        "OS\n"
+        "AS items\n"
+        "IS\n"
+        "F a = 1\n"
+        "IE\n"
+        "IS\n"
+        "F b = 2\n"
+        "IE\n"
+        "AE\n"
+        "OE\n"
+        "DE\n");
+}
+
+TEST(depth_qualified_item_parent_depth_form_b)
+{
+    /* §8.6b: `### - item` is the LLM-natural form, items one
+     * heading level under the array. */
+    trace_t t = {0};
+    int rc;
+    parse_into(
+        "# Doc\n"
+        "## items[]\n"
+        "### - name: Widget\n"
+        "    price: 29.99\n"
+        "### - name: Gadget\n"
+        "    price: 49.99\n",
+        &t, &rc);
+    EXPECT_EQ_INT(rc, JMD_OK);
+    EXPECT_TRACE(t.buf,
+        "DSd Doc\n"
+        "OS\n"
+        "AS items\n"
+        "IS\n"
+        "F name = s\"Widget\"\n"
+        "F price = 29.99\n"
+        "IE\n"
+        "IS\n"
+        "F name = s\"Gadget\"\n"
+        "F price = 49.99\n"
+        "IE\n"
+        "AE\n"
+        "OE\n"
+        "DE\n");
+}
+
+TEST(depth_qualified_closes_sub_array_then_pops_to_target)
+{
+    /* The disambiguation fixture: `## groups[]` -> `- name: A` ->
+     * `### members[]` -> scalar items -> `## - name: B` should
+     * close `members` array AND item A, start item B. */
+    trace_t t = {0};
+    int rc;
+    parse_into(
+        "# Document\n"
+        "## groups[]\n"
+        "- name: A\n"
+        "### members[]\n"
+        "- Alice\n"
+        "- Bob\n"
+        "## - name: B\n"
+        "### members[]\n"
+        "- Charlie\n",
+        &t, &rc);
+    EXPECT_EQ_INT(rc, JMD_OK);
+    EXPECT_TRACE(t.buf,
+        "DSd Document\n"
+        "OS\n"
+        "AS groups\n"
+        "IS\n"
+        "F name = s\"A\"\n"
+        "AS members\n"
+        "IV s\"Alice\"\n"
+        "IV s\"Bob\"\n"
+        "AE\n"
+        "IE\n"
+        "IS\n"
+        "F name = s\"B\"\n"
+        "AS members\n"
+        "IV s\"Charlie\"\n"
+        "AE\n"
+        "IE\n"
+        "AE\n"
+        "OE\n"
+        "DE\n");
+}
+
 TEST(bare_dash_starts_empty_dict_item)
 {
     /* A line containing just `-` opens a fresh dict item with no
@@ -715,6 +817,9 @@ int main(void)
     RUN_TEST(root_array_scalar_items_delete_mode);
     RUN_TEST(thematic_break_closes_current_item);
     RUN_TEST(array_closes_on_shallower_heading);
+    RUN_TEST(depth_qualified_item_same_depth_form_a);
+    RUN_TEST(depth_qualified_item_parent_depth_form_b);
+    RUN_TEST(depth_qualified_closes_sub_array_then_pops_to_target);
     RUN_TEST(bare_dash_starts_empty_dict_item);
     RUN_TEST(null_visitor_parses_cleanly);
     return TEST_SUMMARY();

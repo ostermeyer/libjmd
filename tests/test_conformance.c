@@ -104,6 +104,10 @@ static const char *SUPPORTED_FIXTURES[] = {
     "delete/single-id",
     "delete/bulk-scalar",
     "delete/bulk-composite",
+    /* Slice 4c — depth-qualified items (§8.6a, §8.6b). */
+    "tolerance/depth-plus-one-nested-array",
+    "tolerance/depth-plus-one-root-array",
+    "tolerance/depth-qualified-disambiguation",
     NULL,
 };
 

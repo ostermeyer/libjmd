@@ -392,10 +392,155 @@ static int handle_bare_field(parser_t *p, const jmd_line_t *line)
     return emit_field(p, key_ptr, key_len, &v);
 }
 
+/* Forward declarations — handle_qualified_item below sits above
+ * emit_scalar_field in the file, but uses it for the bullet's
+ * first-field emission. */
+static int emit_scalar_field(parser_t *p, int line_no,
+                             const char *key, size_t key_len,
+                             const char *val_raw, size_t val_len);
+
+/* Depth-qualified bullet item: `##N -` (§8.6a same-depth form) or
+ * `##(N+1) -` (§8.6b parent-depth form, the LLM-natural "items one
+ * level under the array heading"). Walk the stack for the
+ * innermost array at depth == heading_depth first, then fall back
+ * to depth == heading_depth - 1. Pop any scopes nested above that
+ * array (closing them cleanly), close the array's current item if
+ * one was open, then start a fresh item using the bullet body. */
+static int handle_qualified_item(parser_t *p, int heading_depth,
+                                 const char *content, size_t content_len,
+                                 int line_no)
+{
+    const char *rest;
+    size_t      rest_len;
+    if (content_len == 1) {
+        rest = NULL;
+        rest_len = 0;
+    } else if (content[1] == ' ') {
+        rest = content + 2;
+        rest_len = content_len - 2;
+    } else {
+        emit_error(p, line_no,
+                   "depth-qualified item needs '- ' separator");
+        return JMD_ERROR_PARSE;
+    }
+
+    int target = -1;
+    for (int i = p->top; i >= 0; i--) {
+        if (p->stack[i].is_array && p->stack[i].depth == heading_depth) {
+            target = i;
+            break;
+        }
+    }
+    if (target < 0) {
+        for (int i = p->top; i >= 0; i--) {
+            if (p->stack[i].is_array
+                    && p->stack[i].depth == heading_depth - 1) {
+                target = i;
+                break;
+            }
+        }
+    }
+    if (target < 0) {
+        emit_error(p, line_no,
+                   "depth-qualified item has no matching array");
+        return JMD_ERROR_PARSE;
+    }
+
+    /* Pop scopes nested above the target (closing each with its
+     * appropriate end event). */
+    while (p->top > target) {
+        parser_scope_t *s = &p->stack[p->top];
+        int rc;
+        if (s->is_array) {
+            rc = close_current_item(p, s);
+            if (rc) return rc;
+            rc = emit_array_end(p);
+        } else {
+            rc = emit_object_end(p);
+        }
+        if (rc) return rc;
+        p->top--;
+    }
+
+    parser_scope_t *arr = &p->stack[target];
+    int rc = close_current_item(p, arr);
+    if (rc) return rc;
+
+    if (rest_len == 0) {
+        rc = emit_item_start(p);
+        if (rc) return rc;
+        arr->item_active = 1;
+        return JMD_OK;
+    }
+
+    /* `key: value` shape opens a dict item; otherwise scalar item. */
+    const char *kp;
+    size_t kl, kc;
+    if (jmd_key_parse(rest, rest_len, &kp, &kl, &kc) == JMD_OK
+            && kc + 1 < rest_len
+            && rest[kc] == ':'
+            && rest[kc + 1] == ' ') {
+        rc = emit_item_start(p);
+        if (rc) return rc;
+        arr->item_active = 1;
+        return emit_scalar_field(p, line_no, kp, kl,
+                                 rest + kc + 2, rest_len - kc - 2);
+    }
+    if (jmd_key_parse(rest, rest_len, &kp, &kl, &kc) == JMD_OK
+            && kc + 1 == rest_len
+            && rest[kc] == ':') {
+        rc = emit_item_start(p);
+        if (rc) return rc;
+        arr->item_active = 1;
+        jmd_scalar_t v = {0};
+        v.type = JMD_SCALAR_STRING;
+        v.as.string.ptr = NULL;
+        v.as.string.len = 0;
+        return emit_field(p, kp, kl, &v);
+    }
+    /* Scalar item. */
+    jmd_scalar_t v;
+    rc = jmd_scalar_parse(rest, rest_len, &v);
+    if (rc == JMD_ERROR_PARSE
+            && rest_len >= 2
+            && rest[0] == '"'
+            && rest[rest_len - 1] == '"') {
+        size_t dec = jmd_scalar_decode_string(rest + 1, rest_len - 2,
+                                              p->scratch, p->scratch_cap);
+        if (dec == (size_t)-1) {
+            emit_error(p, line_no, "bad JSON escape in string");
+            return JMD_ERROR_PARSE;
+        }
+        if (dec > p->scratch_cap) return JMD_ERROR_MEMORY;
+        v.type = JMD_SCALAR_STRING;
+        v.as.string.ptr = (dec == 0) ? NULL : p->scratch;
+        v.as.string.len = dec;
+        rc = JMD_OK;
+    }
+    if (rc) {
+        emit_error(p, line_no,
+                   "malformed qualified-item value");
+        return JMD_ERROR_PARSE;
+    }
+    return emit_item_value(p, &v);
+}
+
 /* Body heading line at depth >= 2: dispatch into scope-open or
  * scalar-field-on-parent. */
 static int handle_body_heading(parser_t *p, const jmd_line_t *line)
 {
+    /* Depth-qualified bullet form: content starts with `-` or
+     * `- ...`. This case must be detected BEFORE the generic key
+     * peel below, because `-` is also a valid bare-key character
+     * class member and would otherwise be mis-classified. */
+    if (line->content_len >= 1
+            && line->content[0] == '-'
+            && (line->content_len == 1 || line->content[1] == ' ')) {
+        return handle_qualified_item(p, line->heading_depth,
+                                     line->content, line->content_len,
+                                     line->line_no);
+    }
+
     /* Array-shaped heading: `key[]` opens an array scope under the
      * parent object; anonymous `[]` on its own (sub-array inside an
      * array scope) is deferred to slice 4c. */
