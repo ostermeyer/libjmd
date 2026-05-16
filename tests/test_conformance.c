@@ -95,6 +95,15 @@ static const char *SUPPORTED_FIXTURES[] = {
     "data/scalars",
     "data/multiline-blockquote",
     "data/frontmatter",
+    /* Slice 4b — arrays + items + indented continuation + thematic
+     * break + root array. */
+    "data/arrays-scalar",
+    "data/arrays-object",
+    "data/root-array",
+    "data/mixed-complete",
+    "delete/single-id",
+    "delete/bulk-scalar",
+    "delete/bulk-composite",
     NULL,
 };
 

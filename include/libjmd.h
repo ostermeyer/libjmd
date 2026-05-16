@@ -194,6 +194,12 @@ typedef struct {
     int (*on_item_start)(void *ctx);
     int (*on_item_end)(void *ctx);
 
+    /* on_item_value: emitted INSTEAD of on_item_start / on_item_end
+     * for scalar items in an array (e.g. `- 42`, `- hello`). The
+     * item is the scalar value itself — no fields follow. Object
+     * items use the start/end + field-stream form. */
+    int (*on_item_value)(void *ctx, const jmd_scalar_t *value);
+
     int (*on_field)(void *ctx,
                     const char *key, size_t key_len,
                     const jmd_scalar_t *value);
