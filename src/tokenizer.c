@@ -55,8 +55,25 @@ static void classify_line(jmd_line_t *out)
      * followed by a single space and content, or standing alone.
      * Anything else falls through to "body". Indented `#` is body
      * (an indented continuation line that happens to start with
-     * `#` is not a heading — §4 requires column-0 hashes). */
+     * `#` is not a heading — §4 requires column-0 hashes).
+     *
+     * Special root-marker form: `#!`, `#?`, `#-` IMMEDIATELY after
+     * the single `#` (no space between) classify as depth-1
+     * headings whose content keeps the marker as its first byte
+     * (e.g. `#! Schema` -> depth=1, content="! Schema"). The
+     * parser above strips the marker when extracting label + mode.
+     * Mirrors the jmd-impl Python tokenizer's _ROOT_MARKER_RE.
+     */
     if (raw[0] == '#') {
+        /* Root-marker check before generic hash-run: only triggers
+         * on depth-1 form `#<mark> ...`. */
+        if (n >= 3 && (raw[1] == '!' || raw[1] == '?' || raw[1] == '-')
+                && raw[2] == ' ') {
+            out->heading_depth = 1;
+            out->content       = raw + 1;
+            out->content_len   = n - 1;
+            return;
+        }
         size_t depth = 0;
         while (depth < n && raw[depth] == '#') {
             depth++;

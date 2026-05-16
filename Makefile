@@ -166,8 +166,13 @@ tests/test_frontmatter: tests/test_frontmatter.c tests/test_util.h \
                         src/frontmatter.h src/tokenizer.h $(TEST_LIB)
 	$(CC) $(CFLAGS_ALL) -o $@ tests/test_frontmatter.c $(TEST_LIB) $(LDFLAGS)
 
+tests/test_parser: tests/test_parser.c tests/test_util.h \
+                   include/libjmd.h $(TEST_LIB)
+	$(CC) $(CFLAGS_ALL) -o $@ tests/test_parser.c $(TEST_LIB) $(LDFLAGS)
+
 UNIT_TESTS := tests/test_tokenizer tests/test_scalars \
-              tests/test_frontmatter tests/test_conformance
+              tests/test_frontmatter tests/test_parser \
+              tests/test_conformance
 
 test: tests/test_link $(UNIT_TESTS)
 	./tests/test_link

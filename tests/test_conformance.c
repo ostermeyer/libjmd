@@ -86,6 +86,15 @@ static const char *fixtures_root(void)
  * Slice 4 (heading-stack) will add the minimal-object family. Etc.
  */
 static const char *SUPPORTED_FIXTURES[] = {
+    /* Slice 4a — object-only documents. The runner just confirms
+     * jmd_parse returns JMD_OK without erroring; deep-equality
+     * against the .json sibling lands once the DOM layer is up
+     * (slice M3) so we can materialise the parsed value. */
+    "data/minimal-object",
+    "data/nested-objects",
+    "data/scalars",
+    "data/multiline-blockquote",
+    "data/frontmatter",
     NULL,
 };
 

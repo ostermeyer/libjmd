@@ -175,6 +175,38 @@ TEST(hash_without_space_treated_as_body)
     EXPECT_EQ_STRN(lines[0].content, lines[0].content_len, "#foo");
 }
 
+TEST(root_marker_schema)
+{
+    /* `#! Schema` is depth-1 with content starting with the mode
+     * mark — the parser strips the mark when recognising mode. */
+    const char *s = "#! Schema\n";
+    jmd_line_t lines[2];
+    int n = collect(s, strlen(s), lines, 2);
+    EXPECT_EQ_INT(n, 1);
+    EXPECT_EQ_INT(lines[0].heading_depth, 1);
+    EXPECT_EQ_STRN(lines[0].content, lines[0].content_len, "! Schema");
+}
+
+TEST(root_marker_query)
+{
+    const char *s = "#? Find\n";
+    jmd_line_t lines[2];
+    int n = collect(s, strlen(s), lines, 2);
+    EXPECT_EQ_INT(n, 1);
+    EXPECT_EQ_INT(lines[0].heading_depth, 1);
+    EXPECT_EQ_STRN(lines[0].content, lines[0].content_len, "? Find");
+}
+
+TEST(root_marker_delete)
+{
+    const char *s = "#- Order\n";
+    jmd_line_t lines[2];
+    int n = collect(s, strlen(s), lines, 2);
+    EXPECT_EQ_INT(n, 1);
+    EXPECT_EQ_INT(lines[0].heading_depth, 1);
+    EXPECT_EQ_STRN(lines[0].content, lines[0].content_len, "- Order");
+}
+
 TEST(thematic_break_is_a_body_line)
 {
     /* `---` at column 0 is a body line for the tokenizer; the parser
@@ -213,6 +245,9 @@ int main(void)
     RUN_TEST(indented_continuation_keeps_leading_whitespace_in_raw);
     RUN_TEST(whitespace_only_line_classified_as_blank);
     RUN_TEST(hash_without_space_treated_as_body);
+    RUN_TEST(root_marker_schema);
+    RUN_TEST(root_marker_query);
+    RUN_TEST(root_marker_delete);
     RUN_TEST(thematic_break_is_a_body_line);
     RUN_TEST(line_numbers_are_one_based_and_monotonic);
     return TEST_SUMMARY();
