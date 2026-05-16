@@ -204,7 +204,20 @@ static void exercise_fixture(const char *mode_dir, const char *stem,
  * top level. Not a full JSON parser — the .error.json files are
  * single-line-ish flat objects per spec convention. Returns 1 if
  * found, 0 otherwise. The slice written to out_buf is NUL-
- * terminated; cap is the buffer's full capacity. */
+ * terminated; cap is the buffer's full capacity.
+ *
+ * Known limitations (slice-5 review, Code-Smell #1):
+ *  - No JSON-escape awareness: `\"` inside a value string would
+ *    terminate the extracted slice prematurely.
+ *  - No multi-line value support: a value containing `\n` would
+ *    be truncated at the newline.
+ *  - No type discrimination: a numeric "kind": 7 would be silently
+ *    skipped (we only match `"key": "..."`).
+ *
+ * These are acceptable for the controlled .error.json corpus the
+ * runner consumes — every fixture in jmd-spec/conformance/must-fail/
+ * uses flat string/integer values without escapes. If the corpus
+ * shape ever changes, switch to a real JSON parser dependency. */
 static int json_extract_string(const char *src,
                                const char *key,
                                char *out_buf, size_t cap)
