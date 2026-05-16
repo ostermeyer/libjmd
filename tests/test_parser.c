@@ -661,6 +661,68 @@ TEST(array_closes_on_shallower_heading)
         "DE\n");
 }
 
+TEST(repeated_heading_emits_two_object_event_pairs)
+{
+    /* §7.4.1: a streaming parser emits object_start/object_end
+     * pairs for EACH occurrence and need not buffer. Promotion
+     * is the consumer's responsibility (DOM builder collapses
+     * repeated keys into an array). The parser stays streaming-
+     * pure. */
+    trace_t t = {0};
+    int rc;
+    parse_into(
+        "# Doc\n"
+        "## Op\ntype: rect\n"
+        "## Op\ntype: text\n",
+        &t, &rc);
+    EXPECT_EQ_INT(rc, JMD_OK);
+    EXPECT_TRACE(t.buf,
+        "DSd Doc\n"
+        "OS\n"
+        "OS Op\n"
+        "F type = s\"rect\"\n"
+        "OE\n"
+        "OS Op\n"
+        "F type = s\"text\"\n"
+        "OE\n"
+        "OE\n"
+        "DE\n");
+}
+
+/* Capture state for §7.4 error-kind tests: tracks rc + the kind
+ * string the parser emits via on_parse_error. */
+typedef struct {
+    trace_t trace;
+    char    captured_kind[64];
+} kind_capture_t;
+
+static int kc_on_parse_error(void *ctx, const jmd_error_t *err)
+{
+    kind_capture_t *kc = (kind_capture_t *)ctx;
+    if (err->kind) {
+        size_t n = strlen(err->kind);
+        if (n >= sizeof kc->captured_kind) n = sizeof kc->captured_kind - 1;
+        memcpy(kc->captured_kind, err->kind, n);
+        kc->captured_kind[n] = '\0';
+    }
+    return JMD_OK;
+}
+
+TEST(sigil_conflict_emits_structured_kind)
+{
+    /* §7.4.2(a): mixing `## Op` and `## Op[]` triggers a
+     * structured `sigil_conflict` error. Verifies that
+     * on_parse_error fires with the correct kind string. */
+    kind_capture_t kc = {{{0}}, {0}};
+    jmd_visitor_t v = CAPTURE_VISITOR;
+    v.on_parse_error = kc_on_parse_error;
+    const char *src = "# Doc\n## Op\ntype: rect\n## Op[]\n- type: text\n";
+    int rc = jmd_parse(src, strlen(src), &v, &kc);
+    EXPECT_EQ_INT(rc, JMD_ERROR_PARSE);
+    EXPECT_EQ_STRN(kc.captured_kind, strlen(kc.captured_kind),
+                   "sigil_conflict");
+}
+
 TEST(depth_qualified_item_same_depth_form_a)
 {
     /* §8.6a: `## - new` inside an existing `## items[]` array
@@ -817,6 +879,8 @@ int main(void)
     RUN_TEST(root_array_scalar_items_delete_mode);
     RUN_TEST(thematic_break_closes_current_item);
     RUN_TEST(array_closes_on_shallower_heading);
+    RUN_TEST(repeated_heading_emits_two_object_event_pairs);
+    RUN_TEST(sigil_conflict_emits_structured_kind);
     RUN_TEST(depth_qualified_item_same_depth_form_a);
     RUN_TEST(depth_qualified_item_parent_depth_form_b);
     RUN_TEST(depth_qualified_closes_sub_array_then_pops_to_target);

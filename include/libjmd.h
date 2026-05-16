@@ -137,10 +137,29 @@ typedef struct {
 
 /* ---------- Errors ---------- */
 
+/*
+ * Error classification.
+ *
+ * `kind` is NULL for generic parse failures (malformed input
+ * shape, unexpected line) and a stable, NUL-terminated kebab-
+ * lowercase string for structured errors specified by the JMD
+ * spec. The strings are part of the cross-impl contract and
+ * MUST NOT be reworded — consumers branch on them.
+ *
+ * Currently defined kinds (spec §7.4.2):
+ *   "sigil_conflict"
+ *   "repeated_explicit_array"
+ *   "repeated_scalar_key"
+ *
+ * More kinds may be added by future spec extensions. Consumers
+ * SHOULD treat unknown kinds as a generic parse error rather
+ * than asserting on the closed set.
+ */
 typedef struct {
     int         line;      /* 1-based */
     int         column;    /* 1-based */
     const char *message;   /* NUL-terminated; borrowed for callback duration */
+    const char *kind;      /* NUL-terminated or NULL; see comment above */
 } jmd_error_t;
 
 /* ---------- Allocator hook ---------- */

@@ -58,6 +58,32 @@
 
 #define JMD_PARSER_MAX_DEPTH   64
 #define JMD_PARSER_SCRATCH_CAP 2048
+#define JMD_PARSER_KINDS_MAX   32
+
+/* §7.4 kinds — what kind of value a key was associated with the
+ * first time it was seen in a scope. Subsequent encounters check
+ * the recorded kind to detect the three structured errors of
+ * §7.4.2 (sigil_conflict, repeated_explicit_array,
+ * repeated_scalar_key) and to allow object-heading repetition
+ * (the §7.4.1 promotion case — no error). */
+typedef enum {
+    JMD_K_NONE = 0,
+    JMD_K_OBJECT_HEADING,   /* `## key`         */
+    JMD_K_ARRAY_SIGIL,      /* `## key[]`       */
+    JMD_K_SCALAR,           /* `key: val` or `## key: val` */
+} jmd_kind_t;
+
+/* Stable kind-string constants (jmd-spec §7.4.2). These are the
+ * exact strings consumers branch on via jmd_error_t.kind. */
+static const char JMD_KIND_SIGIL_CONFLICT[]          = "sigil_conflict";
+static const char JMD_KIND_REPEATED_EXPLICIT_ARRAY[] = "repeated_explicit_array";
+static const char JMD_KIND_REPEATED_SCALAR_KEY[]     = "repeated_scalar_key";
+
+typedef struct {
+    const char *key_ptr;
+    size_t      key_len;
+    jmd_kind_t  kind;
+} kinds_entry_t;
 
 typedef struct {
     /* The heading depth that opened this scope. Root = 1. */
@@ -68,6 +94,17 @@ typedef struct {
      * (item_start emitted, item_end pending). Scalar items leave
      * this 0 because they wrap as item_value with no end-event. */
     int item_active;
+    /* §7.4 kinds-tracker. Object scopes use this to track which
+     * keys have been seen and in what form. Array scopes leave it
+     * empty (item-level scalar repetition isn't yet enforced —
+     * none of the must-fail fixtures exercise it). Linear-probe
+     * lookup; 32 keys per scope is generous for typical docs and
+     * defensive for pathological inputs.
+     *
+     * Borrowed slices: key_ptr points into the original source
+     * buffer (which outlives the parse), so no copy. */
+    int kinds_count;
+    kinds_entry_t kinds[JMD_PARSER_KINDS_MAX];
 } parser_scope_t;
 
 typedef struct {
@@ -171,11 +208,122 @@ static int emit_ml_end(parser_t *p)
     return p->vis->on_multiline_field_end(p->vctx);
 }
 
-static int emit_error(parser_t *p, int line, const char *msg)
+static int emit_error_kind(parser_t *p, int line,
+                           const char *kind, const char *msg)
 {
     if (!p->vis || !p->vis->on_parse_error) return JMD_OK;
-    jmd_error_t err = { line, 1, msg };
+    jmd_error_t err = { line, 1, msg, kind };
     return p->vis->on_parse_error(p->vctx, &err);
+}
+
+static int emit_error(parser_t *p, int line, const char *msg)
+{
+    return emit_error_kind(p, line, NULL, msg);
+}
+
+/* §7.4 kinds-tracker: look up the recorded kind for a key in
+ * the given scope. Returns JMD_K_NONE if the key hasn't been
+ * seen in this scope yet. */
+static jmd_kind_t kinds_get(parser_scope_t *s,
+                            const char *key, size_t key_len)
+{
+    for (int i = 0; i < s->kinds_count; i++) {
+        if (s->kinds[i].key_len == key_len
+                && memcmp(s->kinds[i].key_ptr, key, key_len) == 0) {
+            return s->kinds[i].kind;
+        }
+    }
+    return JMD_K_NONE;
+}
+
+/* §7.4 kinds-tracker: set/update the recorded kind for a key.
+ * Returns 0 on success, -1 if the table is full (treat as
+ * fatal parse error in the caller). */
+static int kinds_set(parser_scope_t *s,
+                     const char *key, size_t key_len,
+                     jmd_kind_t kind)
+{
+    for (int i = 0; i < s->kinds_count; i++) {
+        if (s->kinds[i].key_len == key_len
+                && memcmp(s->kinds[i].key_ptr, key, key_len) == 0) {
+            s->kinds[i].kind = kind;
+            return 0;
+        }
+    }
+    if (s->kinds_count >= JMD_PARSER_KINDS_MAX) return -1;
+    s->kinds[s->kinds_count].key_ptr = key;
+    s->kinds[s->kinds_count].key_len = key_len;
+    s->kinds[s->kinds_count].kind    = kind;
+    s->kinds_count++;
+    return 0;
+}
+
+/* §7.4 conflict check: given a new occurrence of `kind` for
+ * `key` in the parent scope, decide whether this is allowed
+ * (e.g. repeated object-heading = §7.4.1 promotion) or one of
+ * the three structured errors. Returns JMD_OK on accept (and
+ * updates the kinds table); JMD_ERROR_PARSE on conflict (and
+ * emits the matching structured error via on_parse_error). */
+static int check_and_record_kind(parser_t *p, int line_no,
+                                 parser_scope_t *parent,
+                                 const char *key, size_t key_len,
+                                 jmd_kind_t new_kind)
+{
+    if (!parent || parent->is_array) {
+        /* No object-scope to track in; accept silently. Item-level
+         * scalar repetition isn't enforced (no fixture exercises
+         * it). Future slices may extend this. */
+        return JMD_OK;
+    }
+    jmd_kind_t prior = kinds_get(parent, key, key_len);
+    if (prior == JMD_K_NONE) {
+        if (kinds_set(parent, key, key_len, new_kind) < 0) {
+            emit_error(p, line_no,
+                       "too many keys in scope (§7.4 kinds-table full)");
+            return JMD_ERROR_PARSE;
+        }
+        return JMD_OK;
+    }
+    /* Conflict matrix per spec §7.4.2 + jmd-impl reference. */
+    if (new_kind == JMD_K_OBJECT_HEADING) {
+        if (prior == JMD_K_OBJECT_HEADING) {
+            /* §7.4.1 promotion: repeated `## key` — emit normally,
+             * the consumer (DOM builder) collapses to an array. */
+            return JMD_OK;
+        }
+        if (prior == JMD_K_ARRAY_SIGIL) {
+            emit_error_kind(p, line_no, JMD_KIND_SIGIL_CONFLICT,
+                "key first appeared with [] sigil, then without");
+            return JMD_ERROR_PARSE;
+        }
+        /* prior == JMD_K_SCALAR */
+        emit_error_kind(p, line_no, JMD_KIND_REPEATED_SCALAR_KEY,
+            "key first appeared as scalar, then as object heading");
+        return JMD_ERROR_PARSE;
+    }
+    if (new_kind == JMD_K_ARRAY_SIGIL) {
+        if (prior == JMD_K_ARRAY_SIGIL) {
+            emit_error_kind(p, line_no, JMD_KIND_REPEATED_EXPLICIT_ARRAY,
+                "explicit array key repeated in the same scope");
+            return JMD_ERROR_PARSE;
+        }
+        if (prior == JMD_K_OBJECT_HEADING) {
+            emit_error_kind(p, line_no, JMD_KIND_SIGIL_CONFLICT,
+                "key first appeared without [] sigil, then with");
+            return JMD_ERROR_PARSE;
+        }
+        /* prior == JMD_K_SCALAR */
+        emit_error_kind(p, line_no, JMD_KIND_REPEATED_SCALAR_KEY,
+            "key first appeared as scalar, then as array heading");
+        return JMD_ERROR_PARSE;
+    }
+    /* new_kind == JMD_K_SCALAR: every prior triggers
+     * repeated_scalar_key — the rule is symmetric across the
+     * two scalar forms (bare vs heading) and across mixing with
+     * structural shapes (§7.4.2c). */
+    emit_error_kind(p, line_no, JMD_KIND_REPEATED_SCALAR_KEY,
+        "scalar key repeated in the same scope");
+    return JMD_ERROR_PARSE;
 }
 
 /* ---------------------------------------------------------------- */
@@ -230,6 +378,7 @@ static int push_object(parser_t *p, int depth,
     p->stack[p->top].depth       = depth;
     p->stack[p->top].is_array    = 0;
     p->stack[p->top].item_active = 0;
+    p->stack[p->top].kinds_count = 0;
     return JMD_OK;
 }
 
@@ -246,6 +395,7 @@ static int push_array(parser_t *p, int depth,
     p->stack[p->top].depth       = depth;
     p->stack[p->top].is_array    = 1;
     p->stack[p->top].item_active = 0;
+    p->stack[p->top].kinds_count = 0;
     return JMD_OK;
 }
 
@@ -342,6 +492,10 @@ static int handle_bare_field(parser_t *p, const jmd_line_t *line)
         emit_error(p, line->line_no, "field line missing ':'");
         return JMD_ERROR_PARSE;
     }
+    /* §7.4: scalar key in the current object scope. */
+    int rc = check_and_record_kind(p, line->line_no, &p->stack[p->top],
+                                   key_ptr, key_len, JMD_K_SCALAR);
+    if (rc) return rc;
     /* Two cases: `key:` (empty value, possibly blockquote) or
      * `key: value` (scalar). */
     if (consumed + 1 == line->content_len) {
@@ -368,7 +522,7 @@ static int handle_bare_field(parser_t *p, const jmd_line_t *line)
     const char *val_raw = line->content + consumed + 2;
     size_t      val_len = line->content_len - consumed - 2;
     jmd_scalar_t v;
-    int rc = jmd_scalar_parse(val_raw, val_len, &v);
+    rc = jmd_scalar_parse(val_raw, val_len, &v);
     if (rc == JMD_OK) {
         return emit_field(p, key_ptr, key_len, &v);
     }
@@ -563,6 +717,10 @@ static int handle_body_heading(parser_t *p, const jmd_line_t *line)
         }
         int rc = pop_to(p, line->heading_depth);
         if (rc) return rc;
+        parser_scope_t *parent = (p->top >= 0) ? &p->stack[p->top] : NULL;
+        rc = check_and_record_kind(p, line->line_no, parent,
+                                   kp, kl, JMD_K_ARRAY_SIGIL);
+        if (rc) return rc;
         return push_array(p, line->heading_depth, kp, kl);
     }
     if (line->content_len == 0) {
@@ -592,6 +750,10 @@ static int handle_body_heading(parser_t *p, const jmd_line_t *line)
          * the same or deeper depth first. */
         int rc = pop_to(p, line->heading_depth);
         if (rc) return rc;
+        parser_scope_t *parent = (p->top >= 0) ? &p->stack[p->top] : NULL;
+        rc = check_and_record_kind(p, line->line_no, parent,
+                                   key_ptr, key_len, JMD_K_OBJECT_HEADING);
+        if (rc) return rc;
         return push_object(p, line->heading_depth, key_ptr, key_len);
     }
     if (line->content[consumed] != ':') {
@@ -608,6 +770,10 @@ static int handle_body_heading(parser_t *p, const jmd_line_t *line)
         emit_error(p, line->line_no, "scalar heading without parent");
         return JMD_ERROR_PARSE;
     }
+    /* §7.4: record/check scalar kind in the parent scope. */
+    rc = check_and_record_kind(p, line->line_no, &p->stack[p->top],
+                               key_ptr, key_len, JMD_K_SCALAR);
+    if (rc) return rc;
 
     if (consumed + 1 == line->content_len) {
         /* `## key:` — peek for blockquote. */
@@ -926,7 +1092,7 @@ int jmd_parse(const char *src, size_t len,
     jmd_line_t root;
     if (!jmd_tokenizer_next(&tk, &root)) {
         if (visitor && visitor->on_parse_error) {
-            jmd_error_t err = { 0, 1, "no root heading" };
+            jmd_error_t err = { 0, 1, "no root heading", NULL };
             visitor->on_parse_error(ctx, &err);
         }
         return JMD_ERROR_PARSE;
@@ -934,7 +1100,8 @@ int jmd_parse(const char *src, size_t len,
     if (root.heading_depth != 1) {
         if (visitor && visitor->on_parse_error) {
             jmd_error_t err = { root.line_no, 1,
-                                "first non-frontmatter line must be a depth-1 heading" };
+                "first non-frontmatter line must be a depth-1 heading",
+                NULL };
             visitor->on_parse_error(ctx, &err);
         }
         return JMD_ERROR_PARSE;
